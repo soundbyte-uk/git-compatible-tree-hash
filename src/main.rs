@@ -32,7 +32,7 @@ enum TreeResult {
 }
 
 fn tree_hash(dir_path: &Path) -> io::Result<TreeResult> {
-    let mut entries: Vec<(bool, OsString, &'static str, ObjectId)> = Vec::new();
+    let mut entries: Vec<(bool, Vec<u8>, &'static str, ObjectId)> = Vec::new();
     for entry in fs::read_dir(dir_path)? {
         let entry = entry?;
         let file_name = entry.file_name();
@@ -75,7 +75,7 @@ fn tree_hash(dir_path: &Path) -> io::Result<TreeResult> {
             panic!("wtf is \"{:?}\"?", file_name);
         };
 
-        entries.push((is_dir, file_name, mode_string, hash));
+        entries.push((is_dir, normalized_bytes(file_name), mode_string, hash));
     }
 
     if entries.is_empty() {
@@ -85,14 +85,12 @@ fn tree_hash(dir_path: &Path) -> io::Result<TreeResult> {
     entries.sort_by_key(|(is_dir, name, mode_string, hash)|{
         if *is_dir {
             let mut name_slashed = name.clone();
-            name_slashed.push("/");
+            name_slashed.push(b'/');
             (name_slashed, *mode_string, hash.clone())
         } else {
             (name.clone(), *mode_string, hash.clone())
         }
     });
-        // TODO any quirks of git's sort ordering?
-        // my guess is just relying on OsString bytes is fine
 
     let mut tree_len = 0;
     for (_is_dir, name, mode, _hash) in entries.iter() {
@@ -107,12 +105,18 @@ fn tree_hash(dir_path: &Path) -> io::Result<TreeResult> {
     for (_is_dir, name, mode, hash) in entries {
         hasher.update(mode);
         hasher.update(" ");
-        hasher.update(name.as_encoded_bytes());
+        hasher.update(name);
         hasher.update([0]);
         hasher.update(hash);
     }
 
     Ok(TreeResult::Hash(hasher.finalize().into()))
+}
+
+fn normalized_bytes(str: OsString) -> Vec<u8> {
+    static NFC: icu_normalizer::ComposingNormalizerBorrowed<'_>
+        = icu_normalizer::ComposingNormalizerBorrowed::new_nfc();
+    NFC.normalize_utf8(str.as_encoded_bytes()).as_bytes().to_vec()
 }
 
 fn main() -> io::Result<()> {
