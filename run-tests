@@ -1,0 +1,15 @@
+#!/bin/sh -e
+
+status=0
+
+ls test-dirs | while read test_dir; do
+	rust_hash=`cargo run -q -- "test-dirs/${test_dir}"`
+	git_hash=`git write-tree --prefix "test-dirs/${test_dir}"`
+
+	if [ "$rust_hash" != "$git_hash" ]; then
+		echo "FAIL: ${test_dir} hash ${rust_hash} does not match Git's ${git_hash}"
+		status=1
+	fi
+done
+
+exit $status
