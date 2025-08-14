@@ -26,7 +26,12 @@ fn file_hash(file_path: &Path) -> io::Result<ObjectId> {
     Ok(hasher.finalize().into())
 }
 
-fn tree_hash(dir_path: &Path) -> io::Result<ObjectId> {
+enum TreeResult {
+    Hash(ObjectId),
+    Empty,
+}
+
+fn tree_hash(dir_path: &Path) -> io::Result<TreeResult> {
     let mut entries: Vec<(OsString, &'static str, ObjectId)> = Vec::new();
     for entry in fs::read_dir(dir_path)? {
         let entry = entry?;
@@ -50,7 +55,10 @@ fn tree_hash(dir_path: &Path) -> io::Result<ObjectId> {
         let hash = if md.is_dir() {
             let mut subdir_path = dir_path.to_path_buf();
             subdir_path.push(file_name.clone());
-            tree_hash(&subdir_path)?
+            match tree_hash(&subdir_path)? {
+                TreeResult::Empty => { continue; }
+                TreeResult::Hash(hash) => hash
+            }
         } else if md.is_file() {
             let mut subdir_path = dir_path.to_path_buf();
             subdir_path.push(file_name.clone());
@@ -68,6 +76,10 @@ fn tree_hash(dir_path: &Path) -> io::Result<ObjectId> {
         };
 
         entries.push((file_name, mode_string, hash));
+    }
+
+    if entries.is_empty() {
+        return Ok(TreeResult::Empty);
     }
 
     entries.sort();
@@ -92,7 +104,7 @@ fn tree_hash(dir_path: &Path) -> io::Result<ObjectId> {
         hasher.update(hash);
     }
 
-    Ok(hasher.finalize().into())
+    Ok(TreeResult::Hash(hasher.finalize().into()))
 }
 
 fn main() -> io::Result<()> {
@@ -101,7 +113,10 @@ fn main() -> io::Result<()> {
     let dir_path = args.next().expect("path arg required");
     let dir_path: PathBuf = dir_path.into();
 
-    let hash = tree_hash(&dir_path)?;
+    let hash = match tree_hash(&dir_path)? {
+        TreeResult::Empty => { panic!("Can't hash an empty tree"); }
+        TreeResult::Hash(hash) => hash
+    };
     let mut hex = String::with_capacity(40);
     for byte in hash {
         write!(hex, "{:02x}", byte).unwrap();
