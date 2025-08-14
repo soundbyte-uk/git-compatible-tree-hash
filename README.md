@@ -15,6 +15,8 @@ Git internally does this for the file tree belonging to each commit object, but:
 
 * Often the final hash to describe a deployment must include generated files (for example, environmental configuration) as well as committed ones.
 
+* It's useful to be able to process local files without touching the Git index, or indeed needing an underlying Git repo at all.
+
 Nonetheless, Git's internal format is a convenient testable spec to design to, so this project attempts to produce an identical hash of a given directory tree to that which Git would produce if the same directory was in its index (`git write-tree`).
 
 
