@@ -32,7 +32,7 @@ enum TreeResult {
 }
 
 fn tree_hash(dir_path: &Path) -> io::Result<TreeResult> {
-    let mut entries: Vec<(OsString, &'static str, ObjectId)> = Vec::new();
+    let mut entries: Vec<(bool, OsString, &'static str, ObjectId)> = Vec::new();
     for entry in fs::read_dir(dir_path)? {
         let entry = entry?;
         let file_name = entry.file_name();
@@ -42,14 +42,14 @@ fn tree_hash(dir_path: &Path) -> io::Result<TreeResult> {
             continue;
         }
 
-        let mode_string = if md.is_symlink() {
-            MODE_SYMLINK
+        let (is_dir, mode_string) = if md.is_symlink() {
+            (false, MODE_SYMLINK)
         } else if md.is_dir() {
-            MODE_DIR
+            (true, MODE_DIR)
         } else if md.permissions().mode() & 0x01 > 0 {
-            MODE_EXECUTABLE
+            (false, MODE_EXECUTABLE)
         } else {
-            MODE_NORMAL
+            (false, MODE_NORMAL)
         };
 
         let hash = if md.is_dir() {
@@ -75,19 +75,27 @@ fn tree_hash(dir_path: &Path) -> io::Result<TreeResult> {
             panic!("wtf is \"{:?}\"?", file_name);
         };
 
-        entries.push((file_name, mode_string, hash));
+        entries.push((is_dir, file_name, mode_string, hash));
     }
 
     if entries.is_empty() {
         return Ok(TreeResult::Empty);
     }
 
-    entries.sort();
+    entries.sort_by_key(|(is_dir, name, mode_string, hash)|{
+        if *is_dir {
+            let mut name_slashed = name.clone();
+            name_slashed.push("/");
+            (name_slashed, *mode_string, hash.clone())
+        } else {
+            (name.clone(), *mode_string, hash.clone())
+        }
+    });
         // TODO any quirks of git's sort ordering?
         // my guess is just relying on OsString bytes is fine
 
     let mut tree_len = 0;
-    for (name, mode, _hash) in entries.iter() {
+    for (_is_dir, name, mode, _hash) in entries.iter() {
         //eprintln!("{:?} : {:?} {} {:x?}", &dir_path, &name, &mode, &hash);
         tree_len += mode.len() + 1 + name.len() + 1 + OBJECT_ID_BYTES;
     }
@@ -96,7 +104,7 @@ fn tree_hash(dir_path: &Path) -> io::Result<TreeResult> {
     let mut hasher = Sha1::new();
     hasher.update(format!("tree {}", tree_len));
     hasher.update([0]);
-    for (name, mode, hash) in entries {
+    for (_is_dir, name, mode, hash) in entries {
         hasher.update(mode);
         hasher.update(" ");
         hasher.update(name.as_encoded_bytes());
